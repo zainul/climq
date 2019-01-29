@@ -12,6 +12,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
+var key = "doitdoitdoitdoitdoitdoitdoitdoit"
+
 type ReqRes struct {
 	Req []string
 	Res string
@@ -21,9 +23,93 @@ var fields map[string]ReqRes
 
 func init() {
 	fields = make(map[string]ReqRes)
+
+	fields["retry"] = ReqRes{
+		Req: []string{
+			"route",
+			"data",
+		},
+		Res: "interface",
+	}
+
+	fields["ping"] = ReqRes{
+		Req: []string{
+			"ping(string)",
+		},
+		Res: "pong(string)",
+	}
+
+	fields["pong"] = ReqRes{
+		Req: []string{
+			"ping(string)",
+		},
+		Res: "errors",
+	}
+
 	fields["rpc_queue"] = ReqRes{
-		Req: []string{"number(integer)"},
+		Req: []string{
+			"number(integer)",
+		},
 		Res: "fibbonaci(int)",
+	}
+	fields["user_register"] = ReqRes{
+		Req: []string{
+			"string fullname",
+			"string email",
+			"string password",
+			"string account_type",
+			"string shop_name",
+			"string username",
+			"string phone",
+			"string dob",
+			"int    school_id",
+			"string invitation_code",
+		},
+		Res: "errors[],user_id",
+	}
+
+	fields["user_invite_familly"] = ReqRes{
+		Req: []string{
+			"int user_id",
+		},
+		Res: "errors[],URL",
+	}
+
+	fields["user_show_invitation_list"] = ReqRes{
+		Req: []string{
+			"int user_id",
+		},
+		Res: "errors[],[{user_id,invited,confirm,code,invited_status,invitation_link}]",
+	}
+
+	fields["user_default_info"] = ReqRes{
+		Req: []string{
+			"int user_id",
+		},
+		Res: "errors[],[{user_name,firstname,lastname,alias,dob,phone,gender,status,last_login}]",
+	}
+
+	fields["user_familly_member"] = ReqRes{
+		Req: []string{
+			"int user_id",
+		},
+		Res: "errors[],[{user_id,firstname,lastname,gender,dob,phone,modified,modified_by}]",
+	}
+
+	fields["create_product"] = ReqRes{
+		Req: []string{
+			"int64                 merchant_id",
+			"int64                 school_id",
+			"string                product_name",
+			"string                product_detail",
+			"float64               product_price",
+			"int64                 product_status",
+			"int                   product_calories",
+			"[]ProductsNutrition   product_nutrition [NutritionPercent (int64), NutritionWeightMeasure (string), NutritionWeight (int64),NutritionName (string)]",
+			"[]ProductsTopping     product_topping [ToppingName (string), ToppingPrice (float64)]",
+		},
+
+		Res: "",
 	}
 }
 
@@ -94,6 +180,10 @@ func send(qName string, body string) (res string, err error) {
 
 	corrId := randomString(32)
 
+	bodyEncrypt, _ := EncryptCBC([]byte(key), []byte(body))
+
+	fmt.Println(string(bodyEncrypt))
+
 	err = ch.Publish(
 		"",    // exchange
 		qName, // routing key
@@ -103,13 +193,24 @@ func send(qName string, body string) (res string, err error) {
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
 			ReplyTo:       q.Name,
-			Body:          []byte(body),
+			Body:          []byte(bodyEncrypt),
 		})
 	failOnError(err, "Failed to publish a message")
 
 	for d := range msgs {
 		if corrId == d.CorrelationId {
-			res = string(d.Body)
+
+			log.Println("Response part")
+			fmt.Println(string(d.Body))
+
+			plaintext, err := DecryptCBC([]byte(key), d.Body)
+
+			if err != nil {
+				log.Println("err")
+			}
+
+			res = string(plaintext)
+			fmt.Println(res)
 			failOnError(err, "Failed to convert body to integer")
 			break
 		}
@@ -148,7 +249,14 @@ func main() {
 		log.Printf("Path : %v", que)
 
 		log.Printf("Request : %v,%v", que, bodyStr)
+
+		if que == "retry" {
+			que = bodyArrStr[0]
+			bodyStr = bodyArrStr[1]
+		}
+
 		res, err := send(que, bodyStr)
+
 		log.Printf("Result : %v", res)
 
 		str := fmt.Sprintf(`
